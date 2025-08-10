@@ -24,6 +24,19 @@ namespace Host {
 
 namespace {
 
+template <typename T>
+inline constexpr bool checkPointerAligned(uint32_t Addr) noexcept {
+  return (Addr % alignof(T)) == 0;
+}
+
+template <typename T>
+inline Expect<uint32_t> checkPointerAlignment(uint32_t Addr) noexcept {
+  if (unlikely(!checkPointerAligned<T>(Addr)))
+    return __WASI_ERRNO_FAULT;
+
+  return __WASI_ERRNO_SUCCESS;
+}
+
 template <typename Container>
 inline __wasi_size_t calculateBufferSize(const Container &Array) noexcept {
   std::vector<__wasi_size_t> Lengths(Array.size());
@@ -373,6 +386,15 @@ bool AllowAFUNIX(const Runtime::CallingFrame &Frame,
 
 Expect<uint32_t> WasiArgsGet::body(const Runtime::CallingFrame &Frame,
                                    uint32_t ArgvPtr, uint32_t ArgvBufPtr) {
+  // Check memory alignment of pointers
+  if (unlikely(checkPointerAlignment<uint8_t_ptr>(ArgvPtr) != __WASI_ERRNO_SUCCESS)) {
+    return __WASI_ERRNO_FAULT;
+  }
+
+  if (unlikely(checkPointerAlignment<uint8_t>(ArgvBufPtr) != __WASI_ERRNO_SUCCESS)) {
+    return __WASI_ERRNO_FAULT;
+  }
+
   // Check memory instance from module.
   auto *MemInst = Frame.getMemoryByIndex(0);
   if (MemInst == nullptr) {

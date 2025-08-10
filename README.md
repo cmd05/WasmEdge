@@ -1,3 +1,81 @@
+# Pre-Test for "Pointer alignment checking for WASI host function arguments"
+
+## Description
+
+WasmEdge implemented a series of WASI host functions to support the official WASI APIs. According to the WASI document, the pointer values are expected to be aligned to the alignment of their pointee type, otherwise the the function shall trap.
+
+## Code Changes
+
+This commit implements the checking of pointer alignment for the WASI functions in `wasifunc.cpp`. The pointer alignment check has been added to the function `WasiArgsGet::body`, and uses the same error types as returned by the function. The function receives the params:
+- argv: `Pointer<Pointer<u8>>`
+- argv_buf: `Pointer<u8>`
+
+Additionally, I have added a test to `test/host/wasi/wasi.cpp` as `TEST(WasiTest, ArgsGetPointerAlignment)`. The test passes successfully as follows:
+```
+$ ctest -V -R wasiTests
+// ...
+23: [ RUN      ] WasiTest.ArgsGetPointerAlignment
+23: [       OK ] WasiTest.ArgsGetPointerAlignment (0 ms)
+23: [----------] 12 tests from WasiTest (9181 ms total)
+23:
+23: [----------] Global test environment tear-down
+23: [==========] 31 tests from 4 test suites ran. (9189 ms total)
+23: [  PASSED  ] 31 tests.
+1/1 Test #23: wasiTests ........................   Passed    9.28 sec
+
+The following tests passed:
+        wasiTests
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   9.64 sec
+```
+
+## Explanation
+
+Pointer alignment requires that the pointer to a given type must point to a memory address that is a multiple of that type's alignment requirement.
+
+For example, consider the following program:
+```cpp
+#include <iostream>
+
+int main() {
+    int x = 0;
+    int* px = &x;
+    std::cout << "Alignment of int: %zu\n" << alignof(int); // 4 byte alignment
+
+    char* y = reinterpret_cast<char*>(&x);
+    int* p = reinterpret_cast<int*>(y + 1); // misaligned pointer
+
+    std::cout << *p;
+}
+```
+
+Dereferencing `p` (i.e. `*p`) will cause undefined behaviour. Running the code with `-fsanitize=undefined` gives the error:
+```
+test.cpp:11:15: runtime error: load of misaligned address 0x7ffcfd14620d for type 'int', which requires 4 byte alignment
+```
+
+Memory outline:
+```
+Address:    0x1000   0x1001   0x1002   0x1003   0x1004   0x1005   0x1006   0x1007
+          +--------+--------+--------+--------+--------+--------+--------+--------+
+Bytes:    |        |        |        |        |        |        |        |        |
+          +--------+--------+--------+--------+--------+--------+--------+--------+
+             ^ px
+                      ^ p (misaligned)
+```
+
+To fix this, we can check if a pointer to type `T` is aligned with the following helper function:
+```c
+template <typename T>
+inline constexpr bool checkPointerAligned(uint32_t Addr) noexcept {
+  return (Addr % alignof(T)) == 0;
+}
+```
+
+---
+
 <div align="right">
 
   [中文](README-zh.md) | [正體中文](README-zh-TW.md) | [日本語で読む](README-ja.md)

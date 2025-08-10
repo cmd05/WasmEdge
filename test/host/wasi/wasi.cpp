@@ -2996,6 +2996,39 @@ TEST(WasiTest, SymbolicLink) {
     Env.fini();
   }
 }
+
+TEST(WasiTest, ArgsGetPointerAlignment) {
+  WasmEdge::Host::WASI::Environ Env;
+  WasmEdge::Runtime::Instance::ModuleInstance Mod("");
+  Mod.addHostMemory(
+      "memory", std::make_unique<WasmEdge::Runtime::Instance::MemoryInstance>(
+                    WasmEdge::AST::MemoryType(1)));
+  WasmEdge::Runtime::CallingFrame CallFrame(nullptr, &Mod);
+
+  WasmEdge::Host::WasiArgsGet WasiArgsGet(Env);
+  std::array<WasmEdge::ValVariant, 1> Errno;
+
+  Env.init({}, "test"s, {}, {});
+
+  uint32_t ArgvPtrAlign = alignof(uint8_t_ptr);
+  uint32_t ArgvBufPtrAlign = alignof(uint8_t);
+
+  // misaligned ArgvPtr
+  EXPECT_TRUE(WasiArgsGet.run(
+      CallFrame,
+      std::initializer_list<WasmEdge::ValVariant>{(ArgvPtrAlign + 1), ArgvBufPtrAlign},
+      Errno));
+  EXPECT_EQ(Errno[0].get<int32_t>(), __WASI_ERRNO_FAULT);
+
+  // aligned pointers
+  EXPECT_TRUE(WasiArgsGet.run(
+      CallFrame,
+      std::initializer_list<WasmEdge::ValVariant>{ArgvPtrAlign, ArgvBufPtrAlign},
+      Errno));
+  EXPECT_EQ(Errno[0].get<int32_t>(), __WASI_ERRNO_SUCCESS);
+
+  Env.fini();
+}
 #endif
 
 GTEST_API_ int main(int argc, char **argv) {
